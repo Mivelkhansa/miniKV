@@ -40,29 +40,45 @@ int dictSet(dict *dict, respStr *key, respStr *value) {
     size_t dict_position = hash(key->str, key->size) % dict->size;
     dictEntry *curDict = dict->slots[dict_position];
 
-    respStr *keyCopy = malloc(key->size);
-    respStr *valueCopy = malloc(value->size);
-    memcpy(keyCopy->str, key->str, key->size);
-    memcpy(valueCopy->str, value->str, value->size);
-    keyCopy->size = key->size;
-    valueCopy->size = value->size;
-
     while (curDict != NULL) {
         if (curDict->key.size == key->size &&
             memcmp(curDict->key.str, key->str, key->size) == 0) {
-            // Key exists, update value
-            curDict->value = *valueCopy;  // shallow copy (pointer is reused)
+            char *valueData = malloc(value->size + 1);
+            if (!valueData) return -1;
+
+            memcpy(valueData, value->str, value->size);
+            valueData[value->size] = '\0';
+
+            free(curDict->value.str);
+            curDict->value.str = valueData;
+            curDict->value.size = value->size;
             return 0;
         }
         curDict = curDict->next;
     }
 
-    // 2️⃣ Key doesn't exist, create a new entry
     dictEntry *dictentry = malloc(sizeof(dictEntry));
-    if (!dictentry) return -1;  // allocation failure
+    if (!dictentry) return -1;
 
-    dictentry->key = *keyCopy;       // shallow copy
-    dictentry->value = *valueCopy;   // shallow copy
+    char *keyData = malloc(key->size + 1);
+    char *valueData = malloc(value->size + 1);
+    if (!keyData || !valueData) {
+        free(keyData);
+        free(valueData);
+        free(dictentry);
+        return -1;
+    }
+
+    memcpy(keyData, key->str, key->size);
+    keyData[key->size] = '\0';
+
+    memcpy(valueData, value->str, value->size);
+    valueData[value->size] = '\0';
+
+    dictentry->key.str = keyData;
+    dictentry->key.size = key->size;
+    dictentry->value.str = valueData;
+    dictentry->value.size = value->size;
     dictentry->next = dict->slots[dict_position];
 
     dict->slots[dict_position] = dictentry;
@@ -83,6 +99,8 @@ int dictDelete(dict *dict, respStr *key) {
                 // Node is in the middle or end
                 prev->next = cur->next;
             }
+            free(cur->key.str);
+            free(cur->value.str);
             free(cur);  // free memory of the removed node
             return 1;
         }
@@ -136,6 +154,8 @@ void dictFree(dict *dict) {
         dictEntry *curDict = dict->slots[i];
         while (curDict != NULL) {
             dictEntry *next = curDict->next;
+            free(curDict->key.str);
+            free(curDict->value.str);
             free(curDict);
             curDict = next;
         }
