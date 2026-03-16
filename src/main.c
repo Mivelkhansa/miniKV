@@ -89,6 +89,11 @@ int main(void) {
 
                     if (arraySize > 0) {
                         respStr *args = getArgsFromRespArray(c->buffer, byteLen, arraySize);
+                        if (!args) {
+                            send(fds[i].fd, "-ERR invalid request\r\n", 22, 0);
+                            c->bufferUsed = clearBufferFromInvalidRespRequest(c->buffer, c->bufferUsed);
+                            continue;
+                        }
 
                         if (arraySize >= 3 && respStrCmpWithCstr(&args[0], "SET\0")) {
                             dictSet(dictionary, &args[1], &args[2]);
@@ -96,13 +101,19 @@ int main(void) {
                         } else if (arraySize >= 2 && respStrCmpWithCstr(&args[0], "GET\0")) {
                             respStr *value = dictGet(dictionary, &args[1]);
                             if (value) {
-                                send(fds[i].fd, "+", 1, 0);
+                                char header[64];
+                                int nHeader = snprintf(header, sizeof(header), "$%zu\r\n", value->size);
+                                send(fds[i].fd, header, nHeader, 0);
                                 send(fds[i].fd, value->str, value->size, 0);
                                 send(fds[i].fd, "\r\n", 2, 0);
-                            } else send(fds[i].fd, "-ERR\r\n", 6, 0);
+                            } else {
+                                send(fds[i].fd, "$-1\r\n", 5, 0);
+                            }
                         } else if (arraySize >= 2 && respStrCmpWithCstr(&args[0], "DEL\0")) {
                             dictDelete(dictionary, &args[1]);
                             send(fds[i].fd, "+OK\r\n", 5, 0);
+                        } else {
+                            send(fds[i].fd, "-ERR unknown command\r\n", 22, 0);
                         }
                         freeRespArgs(args, arraySize);
                         memmove(c->buffer, c->buffer + byteLen, c->bufferUsed - byteLen);
@@ -112,8 +123,6 @@ int main(void) {
                         send(fds[i].fd, "-ERR\r\n", 6, 0);
                         perror("invalid RESP syntax request received");
                     } else {
-                        send(fds[i].fd, "-ERR hello how are you\r\n", 24, 0);
-                        perror("invalid RESP request received");
                         continue;
                     }
                 }
